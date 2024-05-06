@@ -4,6 +4,11 @@ import env
 import agent
 
 
+# ####################################################### #
+# The functions in this file have not all been tested yet #
+#                   and may not work                      #
+# ####################################################### #
+
 def generate_bandits(nb_bandits: int, bandit_version: str, nb_arms: int, means: list, stds=None, seeds=None):
 
     # Check means
@@ -95,6 +100,7 @@ class Run(object):
 
     def __init__(self):
         self.trajs = []
+        self.trajs_loged = []
 
     def run_trajectories(self, nb_arms, means, traj_length, nb_traj, stds=None, seed_init=0, seeds=None, keep_history=True):
 
@@ -102,28 +108,28 @@ class Run(object):
             ag = agent.UCBBandit(nb_arms, keep_history=keep_history)
             bandit = env.GaussianBandit(
                 nb_arms, means, stds, seed=seed_init + traj, keep_history=keep_history)
-            sum_tirage = [0]
-            sum_tirage_loged = [0]
+            sum_draws = [0]
+            sum_draws_loged = [0]
             print(f"Iteration {traj}", end="\r")
 
             for iter in range(traj_length):
                 arm = ag.best_action()
                 reward = bandit.play(arm)
                 ag.observe(arm, reward)
-                sum_tirage.append(sum_tirage[-1] + arm)
-                sum_tirage_loged.append(sum_tirage[-1]/np.log(iter+2))
+                sum_draws.append(sum_draws[-1] + arm)
+                sum_draws_loged.append(sum_draws[-1]/np.log(iter+2))
 
-            self.trajs.append(sum_tirage)
-            self.trajs_loged.append(sum_tirage_loged)
+            self.trajs.append(sum_draws)
+            self.trajs_loged.append(sum_draws_loged)
 
     def plot_trajectories(self, print_average=True, logscale=False):
         avg = []
         traj_length = len(self.trajs[0])
 
         for i in range(traj_length):
-            avg_tirage = np.mean([trajl[i] for trajl in Traj_loged])
-            avg.append(avg_tirage)
+            avg_draws = np.mean([trajl[i] for trajl in self.trajs_loged])
+            avg.append(avg_draws)
 
-        for trajl in Traj_loged:
+        for trajl in self.trajs_loged:
             plt.plot(trajl)
         plt.plot(avg, color="black", linewidth=5)
