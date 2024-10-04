@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from distribution import Distribution
+from scipy.stats import binom
 import matplotlib.patches as patches
 import enum
 
@@ -298,7 +299,59 @@ class AugmentedTestEnv(object):
             return [[1, 10, 0]]
         else:
             raise Exception("State out of bound")
-    
+
+
+class SimilarTestEnv(object):
+    def __init__(self):
+        self._state_shape = (9)
+        self._action_shape = (3)
+
+    @property
+    def state_space(self):
+        return self._state_shape
+
+    @property
+    def action_space(self):
+        return self._action_shape
+
+    def transition(self, pos, action, step):
+        if pos == 6:
+            return [[1, 6, 0]]
+        elif pos == 5:
+            return [[1, 6, 0]]
+        elif pos == 4:
+            return [[1, 6, 0]]
+        elif pos == 3:
+            return [[0.5, 6, -1], [0.5, 6, 1]]
+        elif pos == 2:
+            return [[0.8, 6, 0], [0.2, 6, 2]]
+        elif pos == 1:
+            return [[0.1, 6, 0], [0.9, 6, 1]]
+        elif pos == 0:
+            if action == 0:
+                return [[1, 1, 0]]
+            elif action == 1:
+                return [[0.5, 3, 0], [0.25, 4, 0], [0.25, 5, 0]]
+            elif action == 2:
+                return [[1, 2, 0]]
+        elif pos == 7:
+            if action == 0:
+                return [[0.5, 1, 0], [0.5, 2, 0]]
+            elif action == 1:
+                return [[0.25, 3, 0], [0.75, 2, 0]]
+            elif action == 2:
+                return [[1, 3, 0]]
+        elif pos == 8:
+            if action == 0:
+                return [[1, 7, 0]]
+            if action == 1:
+                return [[1, 0, 0]]
+            if action == 2:
+                return [[0.5, 7, 0], [0.5, 3, 0]]  
+
+        print(f"pos : {pos}, action : {action}")
+        raise Exception("State out of bound")         
+            
 
 ####################################################################
 #
@@ -487,3 +540,56 @@ class TerminalCliff(object):
         
         if ax == None:
             plt.show()
+
+####################################################################
+#
+#                        INVENTORY MANAGEMENT
+#
+####################################################################
+
+
+def h(n):
+    """Maintenance cost."""
+    return 1*n
+
+def c(n):
+    """Command cost."""
+    if n == 0:
+        return 0
+    return 3+2*n
+
+def f(n):
+    """Sales profit."""
+    return 4*n
+class InventoryEnv(object):
+
+    def __init__(self, M=25):
+        self.M = M
+        self._state_shape = (M)
+        self._action_shape = (M)
+        self._norm_factor = 4*M
+
+    @property
+    def state_space(self):
+        return self._state_shape
+
+    @property
+    def action_space(self):
+        return self._action_shape
+
+    def prb_d(self,n):
+        """Probability that demand is n."""
+        return binom.pmf(n,self.M,0.5)
+
+    def prg_d(self,n):
+        """Probability that demand is greater or equal to n."""
+        return np.sum([self.prb_d(k) for k in np.arange(n,self.M)])
+
+    def transition(self, pos, action, step):
+        if action>=self.M-pos:
+            return [[1,0,(-c(self.M)-h(self.M))/(self._norm_factor)]]
+        trans = [[self.prg_d(pos+action),0,(f(pos+action)-c(action))/self._norm_factor]]
+        for d in range(pos+action):
+            new_state = pos+action-d
+            trans.append([self.prb_d(d), new_state,(f(d)-c(action)-h(new_state))/self._norm_factor])
+        return trans

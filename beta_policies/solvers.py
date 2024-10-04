@@ -25,11 +25,19 @@ class BetaPolicyBanditSolver(object):
         self.intervals_computed = 0
         self.crossings = []
 
+        supports = [dist.support() for dist in self.distributions]
+        self.rmax = max([supp[1] for supp in supports])
+        self.rmin = min([supp[0] for supp in supports])
+
+        if self.rmin != self.rmax:
+            means = sorted([dist.mean for dist in self.distributions])
+            self.mean_interval = 8*(means[-1] - means[-2])/(self.rmax-self.rmin)**2
+        else:
+            self.mean_interval = 1e7
+
         #Eliminate duplicate distributions
-        #TODO : make it work by adding a dictionnary of changed action
-        self.eliminate_duplicates()
-        if len(self.distributions) == 1:
-            print("Warning : Only one distribution in bandit solver")
+        #TODO : verify there are no issues with r_min and the modification of lowest_reward
+        self.eliminate_duplicates(lowest_reward=self.rmin)
 
     def compute_safe_interval(self, beta:float, dist1=None, dist2=None)->tuple:
         """
@@ -53,10 +61,8 @@ class BetaPolicyBanditSolver(object):
         u2 = dist2.entRM(beta)
         u1, u2 = max(u1, u2), min(u1, u2)
 
-        supp1, supp2 = dist1.support(), dist2.support()
-        rmax = max(supp1[1], supp2[1])
-        rmin = min(supp1[0], supp2[0])
-
+        rmax = self.rmax
+        rmin = self.rmin
         #Check for deterministic optimal/worst distribution (such distributions makes a division by 0 in the bound computation)
         if u1 == rmax or u2 == rmin:
             return (-1e7, 1e7)
@@ -137,7 +143,9 @@ class BetaPolicyBanditSolver(object):
     def compute_crossing_limits(self)->list:
         """
         Computes the upper limit above which the entropic risk measure of one distribution is always better than the other one.
+        TODO : update with the general formulae
         """
+        print("This function is deprecated and should not be used")
         reward_maxs = [dist.support()[1] for dist in self.distributions]
         probas = [self.distributions[i][reward_maxs[i]] for i in range(len(self.distributions))]
 
@@ -212,7 +220,7 @@ class BetaPolicyBanditSolver(object):
                 self.crossings.append(0)
 
         #solves beta < 0 : - epsilon -> low
-        beta = min(-self.accuracy, beta_high)
+        beta = min(-self.accuracy, beta_high, -self.mean_interval)
         best_arm, _ = self.evaluate_max(beta)
 
         while beta_low < beta:
@@ -230,7 +238,7 @@ class BetaPolicyBanditSolver(object):
                 beta = bound
         
         #solves beta > 0 : + epsilon -> high
-        beta = max(self.accuracy, beta_low)
+        beta = max(self.accuracy, beta_low, self.mean_interval)
         best_arm, _ = self.evaluate_max(beta)
 
         while beta < beta_high:
@@ -248,7 +256,7 @@ class BetaPolicyBanditSolver(object):
         self.crossings = sorted(self.crossings)
         return None
 
-    def eliminate_duplicates(self):
+    def eliminate_duplicates(self, lowest_reward=-0)->None:
         """
         Eliminate duplicate distributions.
         Currently, the function replaces the duplicate distribution by a new one with a unique atom of -10 or less, hoping for it to always be the worst arm.
@@ -256,12 +264,12 @@ class BetaPolicyBanditSolver(object):
         #TODO : vérifier qu’il n’y a pas d’erreur dans l’élimination des doublons.
         temp_distrib = []
         b = True
-        i = 0
+        i = 1
         for distrib in self.distributions:
             if distrib not in temp_distrib:
                 temp_distrib.append(distrib)
             else:
-                temp_distrib.append(Distribution({-10-i:1}))
+                temp_distrib.append(Distribution({-lowest_reward-10-i:1}))
                 i += 1
 
         self.distributions = temp_distrib
@@ -289,11 +297,13 @@ class MDPsolver():
         self.beta_max = beta_max
 
         self.intervals = [[[] for _ in range(self.state_space)] for _ in range(horizon+1)]
-        self.optimal_actions = [[[] for _ in range(self.state_space)] for _ in range(horizon)]
-        self.optimal_distributions = [[[] for _ in range(self.state_space)] for _ in range(horizon)]
+        self.optimal_actions = [[[] for _ in range(self.state_space)] for _ in range(horizon+1)]
+        self.optimal_distributions = [[[] for _ in range(self.state_space)] for _ in range(horizon+1)]
 
         for s in range(self.state_space):
             self.intervals[horizon][s].append((self.beta_min, self.beta_max))
+            self.optimal_actions[horizon][s].append(0)
+            self.optimal_distributions[horizon][s].append(Distribution({0:1}))
         
         self.intervals_computed = 0
         
@@ -349,27 +359,18 @@ class MDPsolver():
         return distributions
 
     def compute_action_distribution(self, t, s, a, min, max):
-        distribution = Distribution()
+        distribution = Distribution({0.0:0})
 
         transition = self.env.transition(s, a, t)
-        reward = transition[0][2]
-
-        #if we are at the end of the horizon
-        if self.horizon-1 == t:
-            distribution = distribution.transfer(1, reward)
-            return distribution
 
         #Otherwise, compute the convexe combinaison of the future distributions
-        distribution[0] = 0 #set the distribution at 0 everywhere
         for (p, s_, r) in transition: 
-            assert r == reward
             future_reward_distribution = self.interval_optimal_distribution(t+1, s_, min, max)
+            future_reward_distribution = future_reward_distribution.transfer(1,float(r))
             distribution += p * future_reward_distribution
 
-        # add the reward of the current state
-        distribution = distribution.transfer(1, reward)
         #distribution.normalize() #TODO : vérifier que ca pose pas de problèmes
-        distribution._clean2()   #TODO : vérifier que ca pose pas de problèmes
+        distribution._clean2()    #TODO : vérifier que ca pose pas de problèmes
         return distribution
 
     def interval_optimal_distribution(self, t, s, min, max):
